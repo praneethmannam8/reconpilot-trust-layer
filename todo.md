@@ -13,7 +13,7 @@
 - [x] Add intake-to-evidence-to-audit narrative flow and demo-ready interaction states
 - [x] Add Vitest coverage for deterministic rules, matching, refusal gate, audit chain, benchmark metrics, and prompt boundary enforcement
 - [x] Run typecheck, tests, build, and visual verification at desktop and mobile widths
-- [ ] Save final checkpoint after all completed items are marked [x]
+- [x] Save final checkpoint after all completed items are marked [x]
 - [x] Support separate transactions and settlements CSV uploads or document and validate the combined CSV contract with explicit UI errors
 - [x] Add distinct settlement details and triggered-rules sections to the case drawer
 - [x] Add structured missing_evidence data and render it for refusals
