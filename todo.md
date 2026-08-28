@@ -1,0 +1,26 @@
+# Project TODO
+
+- [x] Build premium, restrained finance-console shell with strong hierarchy and meaningful risk-state styling
+- [x] Add sample-data intake for 60+ synthetic transactions and settlements with ground-truth labels
+- [x] Add CSV upload for transactions and settlements with validation and safe empty/error states
+- [x] Implement deterministic matching pipeline with reproducible outputs and evidence chains
+- [x] Implement deterministic risk-signal rules without AI control over financial facts
+- [x] Implement bounded model-assisted explanation/classification contract with project-locked master and specialist prompts
+- [x] Add evidence-first case views with transaction, settlement, triggered rules, evidence chain, route, and recommended human action
+- [x] Add structured refusal experience showing exact missing evidence and next step
+- [x] Add tamper-evident chained audit trail with visible integrity verification
+- [x] Add honest benchmark reporting across 60+ synthetic ground-truth records: accuracy, throughput, routing distribution, and exception list
+- [x] Add intake-to-evidence-to-audit narrative flow and demo-ready interaction states
+- [x] Add Vitest coverage for deterministic rules, matching, refusal gate, audit chain, benchmark metrics, and prompt boundary enforcement
+- [x] Run typecheck, tests, build, and visual verification at desktop and mobile widths
+- [ ] Save final checkpoint after all completed items are marked [x]
+- [x] Support separate transactions and settlements CSV uploads or document and validate the combined CSV contract with explicit UI errors
+- [x] Add distinct settlement details and triggered-rules sections to the case drawer
+- [x] Add structured missing_evidence data and render it for refusals
+- [x] Recompute audit content hashes and wire the audit UI to real verification state
+- [x] Measure throughput during pipeline execution and surface benchmark methodology
+- [x] Add focused tests for matching, rules, refusal routing, and benchmark correctness
+- [x] Run production build and resolve any build issues
+- [x] Add explicit visible CSV contract and upload error state in the intake UI
+- [x] Surface benchmark methodology beside throughput and accuracy metrics
+- [x] Add direct unit assertions for matching, rule flags, refusal routes, and benchmark calculations
