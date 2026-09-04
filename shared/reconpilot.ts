@@ -1,3 +1,6 @@
+import { AppendOnlyAuditLedger } from "./audit-ledger";
+import { matchTransaction, refusalGate, runRiskRules } from "./deterministic";
+
 export type GroundTruth = "match" | "mismatch" | "missing";
 export type MatchType = "exact" | "fuzzy" | "amount_only" | "none";
 export type Decision = "auto_approve" | "human_review" | "refused";
@@ -27,7 +30,7 @@ export type Signals = {
   riskScore: number;
 };
 
-export type Evidence = { id: string; label: string; value: string; status: "verified" | "warning" | "missing" };
+export type Evidence = { id: string; label: string; value: string; status: "verified" | "warning" | "missing"; provenance: { source: "synthetic_fixture" | "transactions_csv" | "settlements_csv" | "ledger_export"; retrievedAt: string; contentHash: string; schemaVersion: "1.0" } };
 
 export type CaseRecord = {
   id: string;
@@ -46,9 +49,15 @@ export type CaseRecord = {
 
 export type AuditEntry = {
   id: string;
+  eventId: string;
   timestamp: string;
   action: string;
   actor: string;
+  sessionId: string;
+  userId: string;
+  evidenceHashes: string[];
+  resultHash: string;
+  refusalReason?: string;
   contentHash: string;
   previousHash: string;
   payload: string;
@@ -96,14 +105,17 @@ export function hashValue(value: string) {
 
 export function buildAuditTrail(cases: CaseRecord[]): AuditEntry[] {
   let previousHash = "GENESIS::RECONPILOT";
-  return cases.flatMap((item, index) => {
+  const ledger = new AppendOnlyAuditLedger();
+  cases.flatMap((item, index) => {
     const payload = `${item.id}|${item.decision}|${item.signals.riskScore}|${item.confidence}`;
     const contentHash = hashValue(`${previousHash}|${payload}`);
-    const entry: AuditEntry = { id: `aud_${String(index + 1).padStart(4, "0")}`, timestamp: new Date(baseDate.getTime() + index * 31000).toISOString(), action: `CASE_${item.decision.toUpperCase()}`, actor: "reconpilot.engine", contentHash, previousHash, payload };
+    const entry: AuditEntry = { id: `aud_${String(index + 1).padStart(4, "0")}`, eventId: `evt_${String(index + 1).padStart(4, "0")}`, timestamp: new Date(baseDate.getTime() + index * 31000).toISOString(), action: `CASE_${item.decision.toUpperCase()}`, actor: "reconpilot.engine", sessionId: "session_demo_replay", userId: "control-owner-demo", evidenceHashes: item.evidence.map((evidence) => evidence.provenance.contentHash), resultHash: hashValue(`${item.id}|${item.decision}`), refusalReason: item.decision === "refused" ? item.reason : undefined, contentHash, previousHash, payload };
+    ledger.append(entry);
     previousHash = contentHash;
     item.auditIds = [entry.id];
     return [entry];
   });
+  return ledger.snapshot();
 }
 
 export function verifyAuditChain(entries: AuditEntry[]) {
@@ -119,31 +131,24 @@ export function verifyAuditChain(entries: AuditEntry[]) {
 export function processRecords(transactions: Transaction[], settlements: Settlement[]): { cases: CaseRecord[]; audit: AuditEntry[]; benchmark: Benchmark } {
   const startedAt = performance.now();
   const cases: CaseRecord[] = transactions.map((transaction, index) => {
-    const settlement = transaction.settlementId ? settlements.find((item) => item.id === transaction.settlementId) : undefined;
-    const descSimilarity = settlement ? similarity(transaction.description, settlement.description) : 0;
-    const exact = Boolean(settlement && settlement.amount === transaction.amount && settlement.date.slice(0, 10) === transaction.date.slice(0, 10) && descSimilarity === 1);
-    const fuzzy = Boolean(settlement && settlement.amount === transaction.amount && descSimilarity >= 0.7);
-    const amountOnly = Boolean(settlement && settlement.amount === transaction.amount);
-    const matchType: MatchType = exact ? "exact" : fuzzy ? "fuzzy" : amountOnly ? "amount_only" : "none";
-    const confidence = matchType === "exact" ? 0.99 : matchType === "fuzzy" ? 0.93 : matchType === "amount_only" ? 0.78 : 0;
+    const match = matchTransaction(transaction, settlements);
+    const settlement = match.settlement;
+    const matchType: MatchType = match.matchType;
+    const confidence = match.confidenceScore;
     const duplicate = (index > 0 && transactions.slice(0, index).some((prior) => prior.amount === transaction.amount && prior.date.slice(0, 10) === transaction.date.slice(0, 10) && prior.description === transaction.description)) || index % 17 === 0;
-    const signals: Signals = {
-      highValue: transaction.amount > 100000,
-      duplicate,
-      missingSettlement: !transaction.settlementId || !settlement,
-      amountMismatch: Boolean(settlement && settlement.amount !== transaction.amount),
-      riskScore: Math.min(100, (transaction.amount > 100000 ? 25 : 0) + (duplicate ? 25 : 0) + (!transaction.settlementId || !settlement ? 25 : 0) + (settlement && settlement.amount !== transaction.amount ? 25 : 0)),
-    };
+    const signals = runRiskRules(transaction, settlement, duplicate);
+    const provenance = { source: "synthetic_fixture" as const, retrievedAt: baseDate.toISOString(), contentHash: hashValue(`${transaction.id}|${transaction.amount}|${transaction.date}|${transaction.description}`), schemaVersion: "1.0" as const };
     const evidence: Evidence[] = [
-      { id: `${transaction.id}:source`, label: "Source transaction", value: `${transaction.id} · ₹${transaction.amount.toLocaleString("en-IN")} · ${transaction.description}`, status: "verified" },
-      { id: `${transaction.id}:match`, label: "Settlement match", value: settlement ? `${settlement.id} · ₹${settlement.amount.toLocaleString("en-IN")} · ${matchType}` : "No settlement reference available", status: settlement && !signals.amountMismatch ? "verified" : settlement ? "warning" : "missing" },
-      { id: `${transaction.id}:rules`, label: "Deterministic rules", value: Object.entries(signals).filter(([key, value]) => key !== "riskScore" && value).map(([key]) => key).join(", ") || "No rule violations", status: signals.riskScore > 0 ? "warning" : "verified" },
-      { id: `${transaction.id}:grounding`, label: "Evidence boundary", value: "AI may explain these facts; AI cannot change them", status: "verified" },
+      { id: `${transaction.id}:source`, label: "Source transaction", value: `${transaction.id} · ₹${transaction.amount.toLocaleString("en-IN")} · ${transaction.description}`, status: "verified", provenance },
+      { id: `${transaction.id}:match`, label: "Settlement match", value: settlement ? `${settlement.id} · ₹${settlement.amount.toLocaleString("en-IN")} · ${matchType}` : "No settlement reference available", status: settlement && !signals.amountMismatch ? "verified" : settlement ? "warning" : "missing", provenance },
+      { id: `${transaction.id}:rules`, label: "Deterministic rules", value: Object.entries(signals).filter(([key, value]) => key !== "riskScore" && value).map(([key]) => key).join(", ") || "No rule violations", status: signals.riskScore > 0 ? "warning" : "verified", provenance },
+      { id: `${transaction.id}:grounding`, label: "Evidence boundary", value: "AI may explain these facts; AI cannot change them", status: "verified", provenance },
     ];
-    const decision: Decision = signals.missingSettlement || signals.amountMismatch ? "refused" : signals.duplicate || signals.riskScore >= 30 || confidence < 0.7 ? "human_review" : "auto_approve";
-    const reason = decision === "refused" ? (signals.missingSettlement ? "Settlement evidence is missing or cannot be resolved." : "Settlement amount conflicts with the source transaction.") : decision === "human_review" ? "Deterministic risk signals require a human control owner." : "Match and deterministic controls are within the auto-approval gate.";
-    const missingEvidence = signals.missingSettlement ? ["settlement reference or source statement"] : signals.amountMismatch ? ["variance resolution supporting the settlement amount"] : [];
-    const nextStep = decision === "refused" ? (signals.missingSettlement ? "Attach the settlement reference or source statement, then replay the case." : "Resolve the amount variance against the settlement source before approval.") : decision === "human_review" ? "Open the evidence bundle and record an approve, reject, or remediation decision." : "Retain the evidence bundle and continue to close with the recorded audit entry.";
+    const gated = refusalGate({ signals, confidence, evidenceComplete: !signals.missingSettlement && !signals.amountMismatch });
+    const decision: Decision = gated.decision;
+    const reason = decision === "refused" ? (gated.state === "EVIDENCE_INCOMPLETE" ? "Settlement evidence is missing or cannot be resolved." : "Settlement amount conflicts with the source transaction.") : decision === "human_review" ? "Deterministic risk signals require a human control owner." : "Match and deterministic controls are within the auto-approval gate.";
+    const missingEvidence = gated.missingEvidence.length ? gated.missingEvidence : signals.amountMismatch ? ["variance resolution supporting the settlement amount"] : [];
+    const nextStep = gated.suggestedAction;
     return { id: `case_${String(index + 1).padStart(4, "0")}`, transaction, settlement, matchType, confidence, signals, decision, reason, nextStep, missingEvidence, evidence, auditIds: [] };
   });
   const audit = buildAuditTrail(cases);
@@ -177,4 +182,39 @@ export function parseReconCsv(csv: string): { transactions: Transaction[]; settl
     if (settlementId) settlements.push({ id: settlementId, amount: Number(valueAt(row, "settlement_amount") || amount), date: valueAt(row, "settlement_date") || date, reference: valueAt(row, "settlement_reference") || settlementId, description: valueAt(row, "settlement_description") || valueAt(row, "description") });
   });
   return { transactions, settlements };
+}
+
+function parseCsvRows(csv: string) {
+  const rows = csv.trim().split(/\r?\n/).filter(Boolean).map((line) => line.split(",").map((value) => value.trim().replace(/^"|"$/g, "")));
+  if (rows.length < 2) throw new Error("CSV must include a header and at least one record.");
+  const headers = rows[0]!.map((header) => header.toLowerCase());
+  return { headers, rows: rows.slice(1), valueAt: (row: string[], key: string) => row[headers.indexOf(key)] ?? "" };
+}
+
+export function parseTransactionsCsv(csv: string): Transaction[] {
+  const { headers, rows, valueAt } = parseCsvRows(csv);
+  const missing = ["transaction_id", "amount", "date", "description"].filter((header) => !headers.includes(header));
+  if (missing.length) throw new Error(`Transactions CSV missing columns: ${missing.join(", ")}`);
+  return rows.map((row, index) => {
+    const amount = Number(valueAt(row, "amount"));
+    if (!valueAt(row, "transaction_id") || !Number.isFinite(amount) || !valueAt(row, "date") || !valueAt(row, "description")) throw new Error(`Invalid transaction at CSV row ${index + 2}.`);
+    const groundTruth = (valueAt(row, "ground_truth") || "match") as GroundTruth;
+    if (!["match", "mismatch", "missing"].includes(groundTruth)) throw new Error(`Invalid ground_truth at CSV row ${index + 2}.`);
+    return { id: valueAt(row, "transaction_id"), amount, date: valueAt(row, "date"), description: valueAt(row, "description"), settlementId: valueAt(row, "settlement_id") || undefined, groundTruth };
+  });
+}
+
+export function parseSettlementsCsv(csv: string): Settlement[] {
+  const { headers, rows, valueAt } = parseCsvRows(csv);
+  const missing = ["settlement_id", "amount", "date", "reference", "description"].filter((header) => !headers.includes(header));
+  if (missing.length) throw new Error(`Settlements CSV missing columns: ${missing.join(", ")}`);
+  return rows.map((row, index) => {
+    const amount = Number(valueAt(row, "amount"));
+    if (!valueAt(row, "settlement_id") || !Number.isFinite(amount) || !valueAt(row, "date") || !valueAt(row, "reference") || !valueAt(row, "description")) throw new Error(`Invalid settlement at CSV row ${index + 2}.`);
+    return { id: valueAt(row, "settlement_id"), amount, date: valueAt(row, "date"), reference: valueAt(row, "reference"), description: valueAt(row, "description") };
+  });
+}
+
+export function createReviewExport(result: { cases: CaseRecord[]; audit: AuditEntry[]; benchmark: Benchmark }) {
+  return JSON.stringify({ exportedAt: baseDate.toISOString(), schemaVersion: "1.0", benchmark: result.benchmark, cases: result.cases, audit: result.audit }, null, 2);
 }

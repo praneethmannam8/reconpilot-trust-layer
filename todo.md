@@ -24,3 +24,37 @@
 - [x] Add explicit visible CSV contract and upload error state in the intake UI
 - [x] Surface benchmark methodology beside throughput and accuracy metrics
 - [x] Add direct unit assertions for matching, rule flags, refusal routes, and benchmark calculations
+
+## Full Roadmap Expansion
+
+- [x] Produce complete day-by-day roadmap artifacts with locked master prompts and specialist prompts
+- [x] Add deterministic module contracts for matching, risk rules, and refusal routing
+- [x] Add immutable evidence provenance fields and reviewer-facing integrity explanations
+- [x] Add append-only audit event schema with event/session/user/evidence/result hashes and refusal reason
+- [x] Add separate transactions and settlements upload mode with documented schemas
+- [x] Add case/audit export files for demo and reviewer inspection
+- [x] Add full README with architecture, setup, AI boundary, API contract, limitations, and benchmark methodology
+- [x] Add five-minute demo script and 15-question interview preparation pack
+- [x] Add live bounded provider review path using configured Gemini/OpenRouter capabilities when available
+- [x] Add provider-failure fallback and citation validation tests
+- [x] Run independent architecture, security, product, and visual-quality reviews; resolve findings
+- [x] Re-run typecheck, tests, build, benchmark, and responsive visual QA
+- [x] Save the final full-roadmap checkpoint
+
+## Final Review Fix Pass
+
+- [x] Extract matching/risk/refusal logic into a dedicated deterministic module and verify imports/tests against it
+- [x] Implement and surface a true append-only audit event schema with event/session/user/evidence/result hashes and refusal reason
+- [x] Add case and audit export capability with UI controls and reviewer artifacts
+- [x] Expand README with an explicit API contract section for AI and deterministic procedures
+- [x] Expand the interview pack to a full 15-question set
+- [x] Re-run visual QA at desktop and mobile widths after the latest changes and document benchmark rerun results
+- [x] Perform a final review-fix pass closing the outstanding architecture/product/visual review findings
+
+## Final Verifier Corrections
+
+- [x] Refactor processRecords to use shared/deterministic.ts as the active matching, risk, and refusal source of truth
+- [x] Add an append-only audit persistence/enforcement mechanism appropriate to the current MVP and surface event/session/user/evidence/result/refusal fields in the audit experience
+- [x] Run the latest dataset through the pipeline and save benchmark rerun results with accuracy, throughput, routing distribution, and exceptions
+- [x] Record remaining visual recommendations as accepted non-blocking limitations or implement the highest-value ones
+- [ ] Save a new webdev checkpoint after the latest full-roadmap changes and then mark the final full-roadmap checkpoint item complete
