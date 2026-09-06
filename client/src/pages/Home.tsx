@@ -2,6 +2,8 @@ import { useMemo, useState } from "react";
 import { AlertTriangle, ArrowDownToLine, ArrowRight, CheckCircle2, ChevronRight, FileCheck2, Fingerprint, Gauge, LockKeyhole, Search, ShieldCheck, Upload, XCircle } from "lucide-react";
 import { createReviewExport, generateSampleData, parseReconCsv, parseSettlementsCsv, parseTransactionsCsv, processRecords, verifyAuditChain, type CaseRecord, type Decision, type Settlement, type Transaction } from "@shared/reconpilot";
 import { trpc } from "@/lib/trpc";
+import { describeUploadError, exportStages, uploadStages } from "@/lib/feedback";
+import { FeedbackPanel } from "@/components/FeedbackPanel";
 
 const money = (value: number) => `₹${value.toLocaleString("en-IN")}`;
 const decisionMeta: Record<Decision, { label: string; tone: string; icon: typeof CheckCircle2 }> = {
@@ -16,6 +18,10 @@ export default function Home() {
   const [selected, setSelected] = useState<CaseRecord | null>(null);
   const [datasetLabel, setDatasetLabel] = useState("64 records · synthetic ground truth");
   const [uploadError, setUploadError] = useState("");
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  const [uploadStatus, setUploadStatus] = useState("");
+  const [exportProgress, setExportProgress] = useState<number | null>(null);
+  const [exportStatus, setExportStatus] = useState("");
   const [uploadedTransactions, setUploadedTransactions] = useState<Transaction[] | null>(null);
   const [uploadedSettlements, setUploadedSettlements] = useState<Settlement[] | null>(null);
   const [processedAt, setProcessedAt] = useState("09:42:18 IST");
@@ -30,19 +36,18 @@ export default function Home() {
     setSelected(null);
   };
 
-  const handleUpload = (file?: File) => {
+    const handleUpload = (file?: File) => {
     if (!file) return;
-    setUploadError("");
+    setUploadError(""); setUploadStatus(`Reading ${file.name}…`); setUploadProgress(uploadStages.reading);
     void file.text().then((csv) => {
       try {
-        const uploaded = parseReconCsv(csv);
-        const next = processRecords(uploaded.transactions, uploaded.settlements); setData(next); setChainVerified(verifyAuditChain(next.audit));
+        setUploadProgress(uploadStages.validating); setUploadStatus("Validating headers, rows, amounts, and dates…");
+        const uploaded = parseReconCsv(csv); setUploadProgress(uploadStages.processing); setUploadStatus("Running deterministic controls…"); const next = processRecords(uploaded.transactions, uploaded.settlements); setData(next); setChainVerified(verifyAuditChain(next.audit));
         setDatasetLabel(`${file.name} · ${uploaded.transactions.length} validated records`);
         setProcessedAt(new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
-        setSelected(null);
+        setSelected(null); setUploadProgress(uploadStages.complete); setUploadStatus(`Validated ${uploaded.transactions.length} records`); window.setTimeout(() => setUploadProgress(null), 1200);
       } catch (error) {
-        const message = error instanceof Error ? error.message : "invalid CSV";
-        setUploadError(message);
+        setUploadError(describeUploadError(error)); setUploadProgress(null); setUploadStatus("Upload rejected");
         setDatasetLabel("Upload rejected · no financial facts were changed");
         setProcessedAt("awaiting valid file");
       }
@@ -51,12 +56,14 @@ export default function Home() {
 
   const handleSeparateUpload = (kind: "transactions" | "settlements", file?: File) => {
     if (!file) return;
-    setUploadError("");
+    setUploadError(""); setUploadStatus(`Reading ${file.name}…`); setUploadProgress(uploadStages.reading);
     void file.text().then((csv) => {
       try {
-        if (kind === "transactions") { const rows = parseTransactionsCsv(csv); setUploadedTransactions(rows); setDatasetLabel(`${file.name} · ${rows.length} transactions validated`); }
-        else { const rows = parseSettlementsCsv(csv); setUploadedSettlements(rows); setDatasetLabel(`${file.name} · ${rows.length} settlements validated`); }
-      } catch (error) { setUploadError(error instanceof Error ? error.message : "Invalid CSV"); }
+        setUploadProgress(uploadStages.validating); setUploadStatus(`Validating ${kind} schema and rows…`);
+        if (kind === "transactions") { const rows = parseTransactionsCsv(csv); setUploadProgress(uploadStages.processing); setUploadedTransactions(rows); setDatasetLabel(`${file.name} · ${rows.length} transactions validated`); setUploadStatus(`${rows.length} transactions ready; upload settlements to run`); }
+        else { const rows = parseSettlementsCsv(csv); setUploadProgress(uploadStages.processing); setUploadedSettlements(rows); setDatasetLabel(`${file.name} · ${rows.length} settlements validated`); setUploadStatus(`${rows.length} settlements ready; upload transactions to run`); }
+        setUploadProgress(uploadStages.complete); window.setTimeout(() => setUploadProgress(null), 1200);
+      } catch (error) { setUploadError(describeUploadError(error)); setUploadProgress(null); setUploadStatus("Upload rejected"); }
     });
   };
 
@@ -66,7 +73,16 @@ export default function Home() {
     setProcessedAt(new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
   };
 
-  const downloadReviewExport = () => { const blob = new Blob([createReviewExport(data)], { type: "application/json" }); const url = URL.createObjectURL(blob); const anchor = document.createElement("a"); anchor.href = url; anchor.download = "reconpilot-review-export.json"; anchor.click(); URL.revokeObjectURL(url); };
+  const downloadReviewExport = () => {
+    if (exportProgress !== null) return;
+    setExportStatus("Preparing verified cases, benchmarks, and audit chain…"); setExportProgress(exportStages.preparing);
+    window.setTimeout(() => setExportProgress(exportStages.serializing), 120);
+    window.setTimeout(() => {
+      try {
+        const blob = new Blob([createReviewExport(data)], { type: "application/json" }); const url = URL.createObjectURL(blob); const anchor = document.createElement("a"); anchor.href = url; anchor.download = "reconpilot-review-export.json"; anchor.click(); URL.revokeObjectURL(url); setExportProgress(exportStages.complete); setExportStatus("JSON export downloaded"); window.setTimeout(() => setExportProgress(null), 1400);
+      } catch { setExportProgress(null); setExportStatus("Export failed — no file was downloaded"); }
+    }, 260);
+  };
 
   return (
     <div className="min-h-screen bg-[#f5f6f8] text-[#16202a]">
@@ -85,7 +101,7 @@ export default function Home() {
           <div className="page-heading"><div><div className="eyebrow">CONTROL ROOM / {activeTab.toUpperCase()}</div><h1>{activeTab === "overview" ? "Can we prove this decision?" : activeTab === "cases" ? "Case register" : "Audit trail"}</h1><p className="lede">A governed path from intake to evidence to accountable action.</p></div><div className="heading-actions"><button className="ghost-button" onClick={() => document.getElementById("csv-input")?.click()}><Upload size={16} /> Upload CSV</button><input id="csv-input" type="file" accept=".csv" hidden onChange={(event) => handleUpload(event.target.files?.[0])} /><input id="transactions-input" type="file" accept=".csv" hidden onChange={(event) => handleSeparateUpload("transactions", event.target.files?.[0])} /><input id="settlements-input" type="file" accept=".csv" hidden onChange={(event) => handleSeparateUpload("settlements", event.target.files?.[0])} /><button className="text-button upload-secondary" onClick={() => document.getElementById("transactions-input")?.click()}>Transactions CSV</button><button className="text-button upload-secondary" onClick={() => document.getElementById("settlements-input")?.click()}>Settlements CSV</button><button className="primary-button" onClick={loadSample}>Use sample data <ArrowRight size={16} /></button></div></div>
 
           {activeTab === "overview" && <>
-            <section className="intake-strip"><div className="intake-step done"><div className="step-num">01</div><div><b>INTAKE</b><span>{datasetLabel}</span></div></div><div className="strip-line done" /><div className="intake-step done"><div className="step-num">02</div><div><b>DETERMINISTIC RUN</b><span>Matched · signalled · routed</span></div></div><div className="strip-line" /><div className="intake-step"><div className="step-num muted">03</div><div><b>CONTROL OWNER</b><span>Review only where required</span></div></div><button className="run-button" onClick={runPipeline}>Run pipeline <ArrowRight size={15} /></button></section>{uploadError && <div className="upload-error"><AlertTriangle size={15} /><div><b>CSV validation failed</b><span>{uploadError} Combined schema: transaction_id, amount, date, description, settlement_id, settlement_amount, ground_truth. Separate mode: transactions (transaction_id, amount, date, description) + settlements (settlement_id, amount, date, reference, description).</span></div></div>}
+            <section className="intake-strip"><div className="intake-step done"><div className="step-num">01</div><div><b>INTAKE</b><span>{datasetLabel}</span></div></div><div className="strip-line done" /><div className="intake-step done"><div className="step-num">02</div><div><b>DETERMINISTIC RUN</b><span>Matched · signalled · routed</span></div></div><div className="strip-line" /><div className="intake-step"><div className="step-num muted">03</div><div><b>CONTROL OWNER</b><span>Review only where required</span></div></div><button className="run-button" onClick={runPipeline}>Run pipeline <ArrowRight size={15} /></button></section><FeedbackPanel kind="upload" progress={uploadProgress} status={uploadStatus} error={uploadError ? `${uploadError} Combined schema: transaction_id, amount, date, description, settlement_id, settlement_amount, ground_truth. Separate mode: transactions (transaction_id, amount, date, description) + settlements (settlement_id, amount, date, reference, description).` : undefined} />
             <section className="metric-grid"><Metric label="Records processed" value={data.benchmark.total.toString()} note="ground-truth fixtures" icon={<FileCheck2 />} /><Metric label="Measured accuracy" value={`${(data.benchmark.accuracy * 100).toFixed(1)}%`} note="against known outcomes" icon={<ShieldCheck />} accent="emerald" /><Metric label="Throughput" value={`${data.benchmark.throughput.toFixed(0)}/s`} note="local deterministic run" icon={<Gauge />} accent="blue" /><Metric label="Audit integrity" value={data.audit.length ? "VERIFIED" : "PENDING"} note={`${data.audit.length} chained entries`} icon={<Fingerprint />} accent="violet" /></section><div className="method-note"><Fingerprint size={14} /><span><b>Benchmark method:</b> accuracy compares deterministic outcomes against embedded ground truth; throughput is measured wall-clock cases per second during the local run; exceptions are never hidden.</span></div>
             <section className="dashboard-grid"><div className="panel distribution-panel"><PanelTitle eyebrow="ROUTING DISTRIBUTION" title="Every case gets a route" action="View register" onAction={() => setActiveTab("cases")} /><div className="distribution-body"><div className="donut" style={{ "--approved": `${(data.benchmark.autoApprove / data.benchmark.total) * 100}%`, "--review": `${(data.benchmark.humanReview / data.benchmark.total) * 100}%` } as React.CSSProperties}><div><strong>{data.benchmark.total}</strong><span>cases</span></div></div><div className="legend"><Legend color="emerald" label="Auto-approved" value={data.benchmark.autoApprove} /><Legend color="amber" label="Human review" value={data.benchmark.humanReview} /><Legend color="rose" label="Refused" value={data.benchmark.refused} /></div></div><div className="panel-footnote"><span className="verified-badge"><CheckCircle2 size={13} /> deterministic routing</span><span>Replayable at any time</span></div></div><div className="panel exceptions-panel"><PanelTitle eyebrow="EXCEPTION QUEUE" title="Cases that need a human" action="Open all" onAction={() => { setFilter("all"); setActiveTab("cases"); }} /><div className="exception-list">{data.cases.filter((item) => item.decision !== "auto_approve").slice(0, 4).map((item) => <button className="exception-row" key={item.id} onClick={() => setSelected(item)}><div className={`status-dot ${decisionMeta[item.decision].tone}`} /><div className="exception-main"><b>{item.transaction.description}</b><span>{item.id} · {money(item.transaction.amount)}</span></div><span className={`mini-pill ${decisionMeta[item.decision].tone}`}>{decisionMeta[item.decision].label}</span><ChevronRight size={16} className="muted-icon" /></button>)}</div><div className="panel-footnote"><span><AlertTriangle size={13} className="amber-icon" /> {data.benchmark.exceptions.length} highlighted exceptions</span><span>Honest, not hidden</span></div></div></section>
             <section className="panel trust-panel"><div className="trust-copy"><div className="eyebrow">THE TRUST LAYER</div><h2>Evidence before opinion.</h2><p>ReconPilot does not ask AI to decide financial truth. It assembles a defensible case from source records, deterministic signals, and a chained audit trail — then refuses when proof is incomplete.</p><button className="text-button" onClick={() => setActiveTab("audit")}>Inspect the chain <ArrowRight size={15} /></button></div><div className="trust-stats"><div><span>01</span><b>Source facts</b><small>Immutable intake</small></div><div><span>02</span><b>Control signals</b><small>Reproducible rules</small></div><div><span>03</span><b>Accountable route</b><small>Human when needed</small></div></div></section>
@@ -93,7 +109,7 @@ export default function Home() {
 
           {activeTab === "cases" && <section className="panel case-register"><div className="register-toolbar"><div><div className="eyebrow">EVIDENCE REGISTER</div><h2>Case-level control decisions</h2></div><div className="filter-group">{(["all", "auto_approve", "human_review", "refused"] as const).map((value) => <button key={value} className={filter === value ? "selected" : ""} onClick={() => setFilter(value)}>{value === "all" ? "All" : decisionMeta[value].label}</button>)}</div></div><div className="case-table"><div className="table-head"><span>Case / source</span><span>Match</span><span>Risk</span><span>Route</span><span /></div>{visibleCases.map((item) => <button className="table-row" key={item.id} onClick={() => setSelected(item)}><div><b>{item.id}</b><span>{item.transaction.description} · {money(item.transaction.amount)}</span></div><span className="match-cell">{item.matchType}<small>{Math.round(item.confidence * 100)}% conf.</small></span><span className={`risk-score ${item.signals.riskScore > 0 ? "risk-high" : "risk-low"}`}>{item.signals.riskScore}<small>/ 100</small></span><span className={`route-label ${decisionMeta[item.decision].tone}`}>{decisionMeta[item.decision].label}</span><ChevronRight size={16} className="muted-icon" /></button>)}</div></section>}
 
-          {activeTab === "audit" && <section className="audit-layout"><div className="panel audit-summary"><div className="audit-seal"><Fingerprint size={27} /></div><div><div className="eyebrow">CHAIN STATUS</div><h2>{chainVerified ? "Integrity verified" : "Integrity check failed"}</h2><p>Every route is chained to the previous event and its payload hash is recomputed.</p></div><span className={`verified-badge large ${chainVerified ? "" : "rose"}`}><CheckCircle2 size={15} /> {chainVerified ? "PASS" : "FAIL"}</span><button className="text-button" onClick={downloadReviewExport}><ArrowDownToLine size={15} /> Export JSON</button></div><div className="panel audit-panel"><PanelTitle eyebrow="IMMUTABLE EVENT LOG" title={`${data.audit.length} entries · replayable`} action="Verify chain" onAction={() => { const ok = verifyAuditChain(data.audit); setChainVerified(ok); setProcessedAt(`${ok ? "chain verified" : "chain failed"} · ` + new Date().toLocaleTimeString("en-IN")); }} /><div className="audit-list">{data.audit.slice(0, 12).map((entry, index) => <div className="audit-row" key={entry.id}><div className="audit-line"><span className="audit-node" />{index < Math.min(data.audit.length, 12) - 1 && <span className="audit-connector" />}</div><div className="audit-entry"><b>{entry.action.replaceAll("_", " ")}</b><span>{entry.id} · {entry.eventId} · {entry.timestamp.slice(11, 19)} UTC · {entry.actor}</span><small>{entry.sessionId} · {entry.userId} · {entry.evidenceHashes.length} evidence hashes · result {entry.resultHash.slice(0, 10)}…{entry.refusalReason ? ` · refusal: ${entry.refusalReason}` : ""}</small></div><code>{entry.contentHash.slice(0, 16)}…</code><span className="chain-ok"><CheckCircle2 size={14} /></span></div>)}</div></div></section>}
+          {activeTab === "audit" && <section className="audit-layout"><div className="panel audit-summary"><div className="audit-seal"><Fingerprint size={27} /></div><div><div className="eyebrow">CHAIN STATUS</div><h2>{chainVerified ? "Integrity verified" : "Integrity check failed"}</h2><p>Every route is chained to the previous event and its payload hash is recomputed.</p></div><span className={`verified-badge large ${chainVerified ? "" : "rose"}`}><CheckCircle2 size={15} /> {chainVerified ? "PASS" : "FAIL"}</span><div className="export-control"><button className="text-button" disabled={exportProgress !== null} onClick={downloadReviewExport}><ArrowDownToLine size={15} /> {exportProgress !== null ? "Preparing…" : "Export JSON"}</button><FeedbackPanel kind="export" progress={exportProgress} status={exportStatus} /></div></div><div className="panel audit-panel"><PanelTitle eyebrow="IMMUTABLE EVENT LOG" title={`${data.audit.length} entries · replayable`} action="Verify chain" onAction={() => { const ok = verifyAuditChain(data.audit); setChainVerified(ok); setProcessedAt(`${ok ? "chain verified" : "chain failed"} · ` + new Date().toLocaleTimeString("en-IN")); }} /><div className="audit-list">{data.audit.slice(0, 12).map((entry, index) => <div className="audit-row" key={entry.id}><div className="audit-line"><span className="audit-node" />{index < Math.min(data.audit.length, 12) - 1 && <span className="audit-connector" />}</div><div className="audit-entry"><b>{entry.action.replaceAll("_", " ")}</b><span>{entry.id} · {entry.eventId} · {entry.timestamp.slice(11, 19)} UTC · {entry.actor}</span><small>{entry.sessionId} · {entry.userId} · {entry.evidenceHashes.length} evidence hashes · result {entry.resultHash.slice(0, 10)}…{entry.refusalReason ? ` · refusal: ${entry.refusalReason}` : ""}</small></div><code>{entry.contentHash.slice(0, 16)}…</code><span className="chain-ok"><CheckCircle2 size={14} /></span></div>)}</div></div></section>}
         </main>
       </div>
       {selected && <CaseDrawer item={selected} onClose={() => setSelected(null)} />}

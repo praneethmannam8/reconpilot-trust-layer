@@ -33,6 +33,8 @@ describe("ReconPilot deterministic trust layer", () => {
     expect(parsed.transactions[0]?.amount).toBe(1200);
     expect(parsed.settlements[0]?.reference).toBe("stl_1");
     expect(() => parseReconCsv("transaction_id,amount\ntxn_1,not-a-number")).toThrow("Missing required columns");
+    expect(() => parseReconCsv("transaction_id,amount,date,description\ntxn_2,nope,2026-08-21,Orbit Coffee")).toThrow("CSV row 2, field amount");
+    expect(() => parseReconCsv("transaction_id,amount,date,description\ntxn_2,nope,2026-08-21,Orbit Coffee")).toThrow("Next step: correct this value");
   });
 
   it("asserts direct match, rule, refusal, and benchmark behavior", () => {

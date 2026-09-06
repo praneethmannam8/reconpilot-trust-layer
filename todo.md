@@ -58,3 +58,28 @@
 - [x] Run the latest dataset through the pipeline and save benchmark rerun results with accuracy, throughput, routing distribution, and exceptions
 - [x] Record remaining visual recommendations as accepted non-blocking limitations or implement the highest-value ones
 - [x] Save a new webdev checkpoint after the latest full-roadmap changes and then mark the final full-roadmap checkpoint item complete
+
+## Intake and Export Feedback Enhancement
+
+- [x] Add staged progress bars for combined and separate CSV uploads
+- [x] Add detailed row-level CSV validation errors with actionable guidance
+- [x] Add export preparation/download progress and clear success/failure feedback
+- [x] Add tests for validation error detail and feedback state behavior
+- [x] Re-run typecheck, tests, build, and responsive visual QA
+- [x] Save an enhancement checkpoint
+
+## Feedback Verification Corrections
+
+- [x] Extend parseReconCsv to emit explicit row-level validation errors with row number, failing field, and next-step guidance
+- [x] Add frontend/component coverage for upload progress, export progress, success/failure status, and validation-error rendering
+
+## Final Feedback Verification
+
+- [x] Add real frontend/component tests for rendered upload progress, export progress, success/failure feedback, and validation-error UI
+- [x] Run the new frontend test file as part of the Vitest suite
+- [ ] Save a new checkpoint after the CSV/JSON feedback enhancement changes, then mark the enhancement checkpoint item complete
+
+## Rendered Feedback Test Correction
+
+- [x] Add actual frontend render tests for FeedbackPanel that assert progressbar rendering, live status text, success state, failure state, and validation-error UI in the DOM
+- [x] Re-run Vitest after adding rendered frontend tests and verify the new component test file is included

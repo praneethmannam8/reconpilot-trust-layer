@@ -171,14 +171,21 @@ export function parseReconCsv(csv: string): { transactions: Transaction[]; settl
   const transactions: Transaction[] = [];
   const settlements: Settlement[] = [];
   rows.slice(1).forEach((row, index) => {
-    const id = valueAt(row, "transaction_id") || `uploaded_${index + 1}`;
-    const amount = Number(valueAt(row, "amount"));
+    const rowNumber = index + 2;
+    const id = valueAt(row, "transaction_id");
+    const amountText = valueAt(row, "amount");
+    const amount = Number(amountText);
     const date = valueAt(row, "date");
-    if (!Number.isFinite(amount) || !date || !valueAt(row, "description")) throw new Error(`Invalid financial fact at CSV row ${index + 2}.`);
+    const description = valueAt(row, "description");
+    const validationError = (field: string, detail: string) => new Error(`CSV row ${rowNumber}, field ${field}: ${detail}. Next step: correct this value and upload the file again.`);
+    if (!id) throw validationError("transaction_id", "a transaction identifier is required");
+    if (!amountText || !Number.isFinite(amount)) throw validationError("amount", "a numeric amount is required");
+    if (!date) throw validationError("date", "a transaction date is required");
+    if (!description) throw validationError("description", "a source description is required");
     const settlementId = valueAt(row, "settlement_id") || undefined;
     const groundTruth = (valueAt(row, "ground_truth") || "match") as GroundTruth;
-    if (!["match", "mismatch", "missing"].includes(groundTruth)) throw new Error(`Invalid ground_truth at CSV row ${index + 2}.`);
-    transactions.push({ id, amount, date, description: valueAt(row, "description"), settlementId, groundTruth });
+    if (!["match", "mismatch", "missing"].includes(groundTruth)) throw validationError("ground_truth", "use match, mismatch, or missing");
+    transactions.push({ id, amount, date, description, settlementId, groundTruth });
     if (settlementId) settlements.push({ id: settlementId, amount: Number(valueAt(row, "settlement_amount") || amount), date: valueAt(row, "settlement_date") || date, reference: valueAt(row, "settlement_reference") || settlementId, description: valueAt(row, "settlement_description") || valueAt(row, "description") });
   });
   return { transactions, settlements };
