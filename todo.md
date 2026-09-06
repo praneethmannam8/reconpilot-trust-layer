@@ -77,7 +77,7 @@
 
 - [x] Add real frontend/component tests for rendered upload progress, export progress, success/failure feedback, and validation-error UI
 - [x] Run the new frontend test file as part of the Vitest suite
-- [ ] Save a new checkpoint after the CSV/JSON feedback enhancement changes, then mark the enhancement checkpoint item complete
+- [x] Save a new checkpoint after the CSV/JSON feedback enhancement changes, then mark the enhancement checkpoint item complete
 
 ## Rendered Feedback Test Correction
 
